@@ -62,7 +62,8 @@ responses = dataframe.get_column("response").to_list()
 feedbacks, scores = judge.absolute_grade(
     instructions=instructions,
     responses=responses,
-    rubric=score_rubric
+    rubric=score_rubric,
+    params={}
 )
 
 dataframe = dataframe.with_columns(feedback=pl.Series(feedbacks))
