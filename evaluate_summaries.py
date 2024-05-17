@@ -8,7 +8,7 @@ import re
 pmcid_pattern = re.compile(r"PMC\d+")
 
 
-judge = PrometheusEval(model_id="prometheus-eval/prometheus-8x7b-v2.0", absolute_grade_template=ABSOLUTE_PROMPT_WO_REF)
+judge = PrometheusEval(model_id="prometheus-eval/prometheus-7b-v2.0", absolute_grade_template=ABSOLUTE_PROMPT_WO_REF)
 
 litsumm_instruction = (
         "As an experienced academic who ALWAYS provides references for each sentence you write, "
@@ -34,7 +34,7 @@ rubric_data = {
 
 score_rubric = SCORE_RUBRIC_TEMPLATE.format(**rubric_data)
 
-def evaluate_summary(row):
+def prepare_evaluation(row):
     summary = row['summary']
     context = row['context']
     ent_id = row['ent_id']
@@ -42,13 +42,8 @@ def evaluate_summary(row):
 
     instruction = litsumm_instruction.format(ent_id=ent_id, context=context, first_ref=first_ref)
 
-    feedback, score = judge.single_absolute_grade(
-        instruction=instruction,
-        response=summary,
-        rubric=score_rubric
-    )
+    return {"instruction": instruction, "response": summary}
 
-    return {"feedback": feedback, "score": score}
 
 
 
@@ -59,6 +54,18 @@ dataframe = pl.from_arrow(dataset.data.table)
 print(dataframe)
 
 
-dataframe = dataframe.with_columns(res=pl.struct(pl.col("context"), pl.col("summary"), pl.col("ent_id")).map_elements(evaluate_summary)).unnest("res")
+dataframe = dataframe.with_columns(res=pl.struct(pl.col("context"), pl.col("summary"), pl.col("ent_id")).map_elements(prepare_evaluation)).unnest("res")
+
+instructions = dataframe.get_column("instruction").to_list()
+responses = dataframe.get_column("response").to_list()
+
+feedbacks, scores = judge.absolute_grade(
+    instructions=instructions,
+    responses=responses,
+    rubric=score_rubric
+)
+
+dataframe = dataframe.with_columns(feedback=pl.Series(feedbacks))
+dataframe = dataframe.with_columns(scores=pl.Series(scores))
 
 dataframe.write_parquet("litsumm_v1.5_rated_prometheus2.parquet")
